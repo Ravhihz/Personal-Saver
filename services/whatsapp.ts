@@ -59,10 +59,7 @@ const state: WaState = {
 // ─── Session directory ────────────────────────────────────────
 
 function getSessionDir(): string {
-  // Vercel & serverless: gunakan /tmp karena hanya itu yang writable
-  const isVercel = !!process.env.VERCEL;
-  const defaultDir = isVercel ? "/tmp/wa-session" : "./wa-session";
-  const dir = path.resolve(process.env.WA_SESSION_DIR || defaultDir);
+  const dir = path.resolve(process.env.WA_SESSION_DIR || "./wa-session");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
