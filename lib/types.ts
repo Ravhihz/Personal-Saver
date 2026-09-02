@@ -48,6 +48,7 @@ export interface ApiResponse<T = unknown> {
 export interface WaStatus {
   connected: boolean;
   qrCode?: string;
+  pairingCode?: string;
   phoneNumber?: string;
 }
 

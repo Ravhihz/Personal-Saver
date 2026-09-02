@@ -45,6 +45,7 @@ interface WaState {
   isConnected: boolean;
   isConnecting: boolean;
   qrCodeDataUrl: string | null;
+  pairingCode: string | null;
   phoneNumber: string | null;
 }
 
@@ -53,6 +54,7 @@ const state: WaState = {
   isConnected: false,
   isConnecting: false,
   qrCodeDataUrl: null,
+  pairingCode: null,
   phoneNumber: null,
 };
 
@@ -109,6 +111,7 @@ export async function connectWhatsApp(): Promise<void> {
       state.isConnected = true;
       state.isConnecting = false;
       state.qrCodeDataUrl = null;
+      state.pairingCode = null;
       const jid = sock.user?.id ?? "";
       state.phoneNumber = jid.split(":")[0].split("@")[0];
     }
@@ -116,6 +119,7 @@ export async function connectWhatsApp(): Promise<void> {
     if (connection === "close") {
       state.isConnected = false;
       state.isConnecting = false;
+      state.pairingCode = null;
       state.sock = null;
 
       const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -133,8 +137,34 @@ export function getWhatsAppStatus() {
   return {
     connected: state.isConnected,
     qrCode: state.qrCodeDataUrl ?? undefined,
+    pairingCode: state.pairingCode ?? undefined,
     phoneNumber: state.phoneNumber ?? undefined,
   };
+}
+
+// ─── Request pairing code (tanpa QR) ─────────────────────────
+
+export async function requestPairingCode(phoneNumber: string): Promise<string> {
+  // Pastikan sudah connecting tapi belum connected
+  if (!state.sock) {
+    await connectWhatsApp();
+    // Tunggu socket siap
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
+  if (!state.sock) {
+    throw new Error("Socket belum siap, coba lagi sebentar");
+  }
+
+  if (state.isConnected) {
+    throw new Error("WhatsApp sudah terhubung");
+  }
+
+  // Format nomor: pastikan tidak ada karakter selain angka
+  const cleaned = phoneNumber.replace(/\D/g, "");
+  const code = await state.sock.requestPairingCode(cleaned);
+  state.pairingCode = code;
+  return code;
 }
 
 // ─── Send notification ────────────────────────────────────────

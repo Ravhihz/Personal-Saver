@@ -5,22 +5,32 @@ import type { WaStatus } from "@/lib/types";
 
 export default function WaStatusBar() {
   const [status, setStatus] = useState<WaStatus>({ connected: false });
-  const [showQr, setShowQr] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [method, setMethod] = useState<"qr" | "phone">("phone");
+
+  // Pairing code state
+  const [phoneInput, setPhoneInput] = useState("");
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+
   const modalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ─── Fetch status helper ──────────────────────────────────
+  // ─── Fetch status ─────────────────────────────────────────
   async function fetchStatus(): Promise<WaStatus> {
-    const res = await fetch("/api/whatsapp/status");
-    const json = await res.json();
-    if (json.success) {
-      setStatus(json.data);
-      return json.data as WaStatus;
-    }
+    try {
+      const res = await fetch("/api/whatsapp/status");
+      const json = await res.json();
+      if (json.success) {
+        setStatus(json.data);
+        return json.data as WaStatus;
+      }
+    } catch { /* silent */ }
     return { connected: false };
   }
 
-  // ─── Background poll — lambat kalau connected, cepat kalau belum
+  // ─── Background poll ──────────────────────────────────────
   useEffect(() => {
     fetchStatus();
     const interval = status.connected ? 30000 : 5000;
@@ -28,37 +38,62 @@ export default function WaStatusBar() {
     return () => clearInterval(id);
   }, [status.connected]);
 
-  // ─── Ketika modal terbuka, poll lebih cepat (1.5s) ─────────
+  // ─── Modal poll (1.5s) — auto-tutup saat connected ────────
   useEffect(() => {
-    if (showQr) {
+    if (showModal) {
       modalPollRef.current = setInterval(async () => {
         const latest = await fetchStatus();
-        // Auto-tutup modal begitu WA berhasil connected
-        if (latest.connected) {
-          setShowQr(false);
-        }
+        if (latest.connected) setShowModal(false);
       }, 1500);
     } else {
       if (modalPollRef.current) {
         clearInterval(modalPollRef.current);
         modalPollRef.current = null;
       }
+      // Reset pairing state saat modal ditutup
+      setPairingCode(null);
+      setPairingError(null);
+      setPairingLoading(false);
     }
     return () => {
       if (modalPollRef.current) clearInterval(modalPollRef.current);
     };
-  }, [showQr]);
+  }, [showModal]);
 
-  // ─── Klik tombol Hubungkan ───────────────────────────────
+  // ─── Buka modal ───────────────────────────────────────────
   async function handleConnect() {
     setConnecting(true);
-    // Panggil status untuk trigger inisialisasi Baileys di server
     await fetchStatus();
-    // Tunggu sebentar biar Baileys sempat generate QR
     await new Promise((r) => setTimeout(r, 2000));
     await fetchStatus();
-    setShowQr(true);
+    setShowModal(true);
     setConnecting(false);
+  }
+
+  // ─── Request pairing code ─────────────────────────────────
+  async function handleRequestPairing() {
+    if (!phoneInput) return;
+    setPairingLoading(true);
+    setPairingError(null);
+    setPairingCode(null);
+
+    try {
+      const res = await fetch("/api/whatsapp/pair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: phoneInput }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setPairingCode(json.data.code);
+      } else {
+        setPairingError(json.error || "Gagal mendapatkan kode");
+      }
+    } catch {
+      setPairingError("Koneksi gagal, coba lagi");
+    } finally {
+      setPairingLoading(false);
+    }
   }
 
   return (
@@ -91,54 +126,129 @@ export default function WaStatusBar() {
                 </svg>
                 Menyiapkan...
               </>
-            ) : (
-              "Hubungkan"
-            )}
+            ) : "Hubungkan"}
           </button>
         )}
       </div>
 
-      {/* ─── QR Modal ───────────────────────────────────── */}
-      {showQr && !status.connected && (
+      {/* ─── Modal ──────────────────────────────────────── */}
+      {showModal && !status.connected && (
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-          onClick={() => setShowQr(false)}
+          onClick={() => setShowModal(false)}
         >
           <div
             className="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-center font-bold text-gray-800 mb-1">
-              Scan QR Code
+            <h2 className="text-center font-bold text-gray-800 mb-4">
+              Hubungkan WhatsApp
             </h2>
-            <p className="text-center text-xs text-gray-400 mb-4">
-              Buka WhatsApp → Perangkat Tertaut → Tautkan Perangkat
-            </p>
 
-            {status.qrCode ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={status.qrCode}
-                alt="WhatsApp QR Code"
-                className="w-full rounded-lg border border-gray-100"
-              />
-            ) : (
-              <div className="flex items-center justify-center h-48 bg-gray-50 rounded-xl text-gray-400">
-                <div className="text-center">
-                  <div className="text-4xl mb-3 animate-pulse">📱</div>
-                  <p className="text-sm font-medium">Memuat QR Code...</p>
-                  <p className="text-xs mt-1 text-gray-300">Tunggu beberapa detik</p>
+            {/* Tab switch */}
+            <div className="flex bg-gray-100 rounded-lg p-1 mb-5">
+              <button
+                onClick={() => setMethod("phone")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition ${
+                  method === "phone"
+                    ? "bg-white text-gray-800 shadow-sm"
+                    : "text-gray-500"
+                }`}
+              >
+                📱 Kode Telepon
+              </button>
+              <button
+                onClick={() => setMethod("qr")}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition ${
+                  method === "qr"
+                    ? "bg-white text-gray-800 shadow-sm"
+                    : "text-gray-500"
+                }`}
+              >
+                📷 Scan QR
+              </button>
+            </div>
+
+            {/* ── Tab: Kode Telepon ── */}
+            {method === "phone" && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 text-center">
+                  Masukkan nomor WA kamu, lalu masukkan kode 8 digit yang muncul ke WhatsApp
+                </p>
+
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">+</span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="628xxxxxxxxxx"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value.replace(/\D/g, ""))}
+                    className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+                  />
                 </div>
+
+                <button
+                  onClick={handleRequestPairing}
+                  disabled={pairingLoading || !phoneInput}
+                  className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg transition disabled:opacity-50"
+                >
+                  {pairingLoading ? "Meminta kode..." : "Minta Kode"}
+                </button>
+
+                {pairingError && (
+                  <p className="text-xs text-red-500 text-center">{pairingError}</p>
+                )}
+
+                {pairingCode && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+                    <p className="text-xs text-emerald-600 mb-2 font-medium">
+                      Masukkan kode ini di WhatsApp
+                    </p>
+                    <p className="text-3xl font-bold text-emerald-700 tracking-[0.3em]">
+                      {pairingCode}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Perangkat Tertaut → Tautkan dengan Nomor Telepon
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
-            <p className="text-center text-xs text-gray-300 mt-3">
-              QR otomatis refresh · modal tertutup saat terhubung
+            {/* ── Tab: Scan QR ── */}
+            {method === "qr" && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 text-center">
+                  Buka WhatsApp → Perangkat Tertaut → Tautkan Perangkat → Scan QR
+                </p>
+
+                {status.qrCode ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={status.qrCode}
+                    alt="WhatsApp QR Code"
+                    className="w-full rounded-lg border border-gray-100"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-48 bg-gray-50 rounded-xl text-gray-400">
+                    <div className="text-center">
+                      <div className="text-4xl mb-3 animate-pulse">📱</div>
+                      <p className="text-sm font-medium">Memuat QR Code...</p>
+                      <p className="text-xs mt-1 text-gray-300">Tunggu beberapa detik</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-center text-xs text-gray-300 mt-4">
+              Modal tertutup otomatis saat terhubung
             </p>
 
             <button
-              onClick={() => setShowQr(false)}
-              className="w-full mt-3 py-2 text-sm text-gray-400 hover:text-gray-600 transition"
+              onClick={() => setShowModal(false)}
+              className="w-full mt-2 py-2 text-sm text-gray-400 hover:text-gray-600 transition"
             >
               Tutup
             </button>
