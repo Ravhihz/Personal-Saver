@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 💰 Personal Saver
 
-## Getting Started
+> Catat penghasilan ojol & usaha harian — otomatis simpan ke Google Sheets dan kirim ringkasan ke WhatsApp.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## ✨ Fitur
+
+| Fitur | Keterangan |
+|-------|-----------|
+| 📥 **Catat Pendapatan** | Dompet Digital, Tunai, Tip, Insentif, Uang Pengganti |
+| 📤 **Catat Pengeluaran** | Kategori dinamis: Makan, Bensin, Toll, Parkir, Lainnya |
+| 🧮 **Auto-hitung** | Total Pendapatan, Total Pengeluaran, dan Bersih — otomatis |
+| 📊 **Google Sheets** | Semua data tersimpan rapi di spreadsheet-mu sendiri |
+| 💬 **Notifikasi WhatsApp** | Ringkasan harian dikirim otomatis via Baileys setelah submit |
+| 🔐 **Session Persisten** | Sekali scan QR, WA tetap terhubung walau server restart |
+
+---
+
+## 🏗️ Stack
+
+- **Next.js 16** (App Router) + **TypeScript**
+- **Tailwind CSS v4** — UI mobile-first
+- **Google Sheets API** via Service Account
+- **Baileys** — WhatsApp Web library (tanpa API berbayar)
+- **Zustand** — state management ringan
+
+---
+
+## ⚙️ Konfigurasi
+
+Salin `.env.example` → `.env.local` lalu isi semua variabel:
+
+```
+GOOGLE_SERVICE_ACCOUNT_EMAIL=   # Email service account
+GOOGLE_PRIVATE_KEY=             # Private key dari JSON credential
+GOOGLE_SPREADSHEET_ID=          # ID spreadsheet tujuan
+GOOGLE_SHEET_NAME=Transaksi     # Nama tab (default: Transaksi)
+
+WA_TARGET_NUMBER=628xxxxxxxxxx  # Nomor WA tujuan notifikasi
+WA_SESSION_DIR=./wa-session     # Folder session Baileys
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Google Sheets — cara setup
+1. Buka [Google Cloud Console](https://console.cloud.google.com)
+2. Buat project → aktifkan **Google Sheets API**
+3. Buat **Service Account** → download JSON key
+4. Ambil `client_email` dan `private_key` dari JSON tersebut
+5. Share spreadsheet-mu ke email service account sebagai **Editor**
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### WhatsApp — cara connect
+1. Jalankan app → klik tombol **Hubungkan** di header
+2. Scan QR code yang muncul menggunakan WhatsApp di HP
+3. Session tersimpan otomatis di folder `wa-session/` — tidak perlu scan ulang
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 📱 Tampilan
 
-To learn more about Next.js, take a look at the following resources:
+```
+╔════════════════════════╗
+   💰 PERSONAL SAVER
+   Ringkasan Harian
+╚════════════════════════╝
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+📅 Tanggal: 01/09/2026
+💰 Total Pendapatan : Rp 285.000
+💸 Total Pengeluaran: Rp 75.000
+✅ Bersih           : Rp 210.000
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 📁 Struktur Proyek
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+personal-saver/
+├── app/
+│   ├── api/
+│   │   ├── transactions/route.ts   # POST & GET transaksi
+│   │   └── whatsapp/
+│   │       ├── status/route.ts     # Cek status koneksi WA
+│   │       └── qr/route.ts         # Ambil QR code
+│   ├── layout.tsx
+│   └── page.tsx                    # Halaman utama
+├── components/
+│   ├── IncomeForm.tsx              # Form pendapatan
+│   ├── ExpenseForm.tsx             # Form pengeluaran dinamis
+│   ├── SummaryCard.tsx             # Kartu ringkasan real-time
+│   ├── TransactionList.tsx         # Daftar riwayat
+│   └── WaStatusBar.tsx             # Status & QR WhatsApp
+├── lib/
+│   ├── types.ts                    # Type definitions
+│   ├── calculations.ts             # Logika hitung
+│   └── store.ts                    # Zustand store
+├── services/
+│   ├── sheets.ts                   # Google Sheets service
+│   └── whatsapp.ts                 # Baileys WA service
+└── .env.example                    # Template konfigurasi
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🔒 Keamanan
+
+- `.env.local` dan folder `wa-session/` sudah masuk `.gitignore` — **jangan pernah di-commit**
+- Notifikasi WhatsApp hanya dikirim ke nomor yang dikonfigurasi di `WA_TARGET_NUMBER`
+- Google Sheets diakses via Service Account — tidak butuh OAuth user
+
+---
+
+<p align="center">
+  Dibuat dengan ❤️ untuk para pejuang jalanan 🛵
+</p>
