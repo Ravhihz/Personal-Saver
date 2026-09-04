@@ -16,6 +16,8 @@ export default function WaStatusBar() {
   const [pairingError, setPairingError] = useState<string | null>(null);
 
   const modalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [qrCountdown, setQrCountdown] = useState(20);
 
   // ─── Fetch status ─────────────────────────────────────────
   async function fetchStatus(): Promise<WaStatus> {
@@ -60,7 +62,31 @@ export default function WaStatusBar() {
     };
   }, [showModal]);
 
-  // ─── Buka modal ───────────────────────────────────────────
+  // ─── QR auto-refresh setiap 18 detik (QR expire ~20 detik) ──
+  useEffect(() => {
+    if (showModal && method === "qr") {
+      setQrCountdown(20);
+      // Countdown ticker
+      const ticker = setInterval(() => {
+        setQrCountdown((c) => (c <= 1 ? 20 : c - 1));
+      }, 1000);
+      // Force refresh QR dari server setiap 18 detik
+      qrRefreshRef.current = setInterval(() => {
+        fetchStatus();
+        setQrCountdown(20);
+      }, 18000);
+      return () => {
+        clearInterval(ticker);
+        if (qrRefreshRef.current) clearInterval(qrRefreshRef.current);
+      };
+    } else {
+      if (qrRefreshRef.current) {
+        clearInterval(qrRefreshRef.current);
+        qrRefreshRef.current = null;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModal, method]);
   async function handleConnect() {
     setConnecting(true);
     await fetchStatus();
@@ -224,12 +250,36 @@ export default function WaStatusBar() {
                 </p>
 
                 {status.qrCode ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={status.qrCode}
-                    alt="WhatsApp QR Code"
-                    className="w-full rounded-lg border border-gray-100"
-                  />
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={status.qrCode}
+                      alt="WhatsApp QR Code"
+                      className="w-full rounded-lg border border-gray-100"
+                    />
+                    {/* Countdown bar */}
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-xs text-gray-400">
+                        QR refresh dalam{" "}
+                        <span className={qrCountdown <= 5 ? "text-red-400 font-bold" : "text-gray-500 font-medium"}>
+                          {qrCountdown}s
+                        </span>
+                      </p>
+                      <button
+                        onClick={() => { fetchStatus(); setQrCountdown(20); }}
+                        className="text-xs text-emerald-500 hover:text-emerald-700 font-medium transition"
+                      >
+                        🔄 Refresh
+                      </button>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                      <div
+                        className="bg-emerald-400 h-1 rounded-full transition-all duration-1000"
+                        style={{ width: `${(qrCountdown / 20) * 100}%` }}
+                      />
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center h-48 bg-gray-50 rounded-xl text-gray-400">
                     <div className="text-center">

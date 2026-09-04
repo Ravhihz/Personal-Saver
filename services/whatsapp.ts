@@ -3,6 +3,7 @@ import fs from "fs";
 import qrcode from "qrcode";
 import type { Transaction } from "@/lib/types";
 import { formatRupiah } from "@/lib/calculations";
+import { isRedisConfigured, useRedisAuthState } from "@/services/waSession";
 
 // ─── Suppress Baileys internal unhandled rejections ──────────
 // Baileys throws timeout/connection errors as unhandledRejection
@@ -80,8 +81,23 @@ export async function connectWhatsApp(): Promise<void> {
     fetchLatestBaileysVersion,
   } = await getBaileys();
 
-  const sessionDir = getSessionDir();
-  const { state: authState, saveCreds } = await useMultiFileAuthState(sessionDir);
+  // ─── Auth state: Redis (persistent) atau file (lokal/fallback) ──
+  let authState: Awaited<ReturnType<typeof useMultiFileAuthState>>["state"];
+  let saveCreds: () => Promise<void>;
+
+  if (isRedisConfigured()) {
+    console.log("[WA] Menggunakan Upstash Redis untuk session storage");
+    const redisAuth = await useRedisAuthState(await getBaileys());
+    authState = redisAuth.state as typeof authState;
+    saveCreds = redisAuth.saveCreds;
+  } else {
+    console.log("[WA] Menggunakan file system untuk session storage");
+    const sessionDir = getSessionDir();
+    const fileAuth = await useMultiFileAuthState(sessionDir);
+    authState = fileAuth.state;
+    saveCreds = fileAuth.saveCreds;
+  }
+
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
