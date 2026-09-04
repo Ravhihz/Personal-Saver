@@ -62,8 +62,8 @@ const state: WaState = {
 // ─── Session directory ────────────────────────────────────────
 
 function getSessionDir(): string {
-  const dir = path.resolve(process.env.WA_SESSION_DIR || "./wa-session");
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const dir = path.join(process.cwd(), process.env.WA_SESSION_DIR || "wa-session");
+  if (!fs.existsSync(/*turbopackIgnore: true*/ dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
 
@@ -201,6 +201,7 @@ export async function requestPairingCode(phoneNumber: string): Promise<string> {
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      if (!state.sock) throw new Error("Socket tidak tersedia");
       const code = await state.sock.requestPairingCode(cleaned);
       state.pairingCode = code;
       return code;
