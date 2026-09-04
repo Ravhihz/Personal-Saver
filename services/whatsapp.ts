@@ -145,15 +145,33 @@ export function getWhatsAppStatus() {
 // ─── Request pairing code (tanpa QR) ─────────────────────────
 
 export async function requestPairingCode(phoneNumber: string): Promise<string> {
-  // Pastikan sudah connecting tapi belum connected
-  if (!state.sock) {
-    await connectWhatsApp();
-    // Tunggu socket siap
-    await new Promise((r) => setTimeout(r, 3000));
+  if (state.isConnected) {
+    throw new Error("WhatsApp sudah terhubung");
   }
 
+  // Pastikan socket ada
   if (!state.sock) {
-    throw new Error("Socket belum siap, coba lagi sebentar");
+    await connectWhatsApp();
+  }
+
+  // Tunggu socket benar-benar siap (ada qr atau connecting) — max 15 detik
+  const waitForSocket = async () => {
+    const maxWait = 15000;
+    const interval = 500;
+    let elapsed = 0;
+    while (elapsed < maxWait) {
+      // Socket siap jika sudah ada qrCode (WA server terhubung) atau sock tidak null
+      if (state.sock && (state.qrCodeDataUrl || state.isConnecting === false)) {
+        return;
+      }
+      await new Promise((r) => setTimeout(r, interval));
+      elapsed += interval;
+    }
+  };
+  await waitForSocket();
+
+  if (!state.sock) {
+    throw new Error("Socket belum siap, coba lagi dalam beberapa detik");
   }
 
   if (state.isConnected) {
@@ -162,9 +180,29 @@ export async function requestPairingCode(phoneNumber: string): Promise<string> {
 
   // Format nomor: pastikan tidak ada karakter selain angka
   const cleaned = phoneNumber.replace(/\D/g, "");
-  const code = await state.sock.requestPairingCode(cleaned);
-  state.pairingCode = code;
-  return code;
+
+  // Retry request pairing code sampai 3x karena kadang connection drop saat pertama kali
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const code = await state.sock.requestPairingCode(cleaned);
+      state.pairingCode = code;
+      return code;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[WA] Pairing code attempt ${attempt} gagal: ${lastError.message}`);
+      if (attempt < 3) {
+        // Reset dan reconnect sebelum retry
+        state.sock = null;
+        state.isConnected = false;
+        state.isConnecting = false;
+        await connectWhatsApp();
+        await new Promise((r) => setTimeout(r, 5000)); // tunggu lebih lama
+      }
+    }
+  }
+
+  throw new Error(`Gagal mendapatkan pairing code setelah 3x percobaan: ${lastError?.message}`);
 }
 
 // ─── Send notification ────────────────────────────────────────
