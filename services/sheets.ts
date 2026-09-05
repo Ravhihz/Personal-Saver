@@ -186,10 +186,29 @@ export async function appendTransaction(tx: Transaction): Promise<void> {
 
 function parseSheetNumber(val: string | undefined): number {
   if (!val) return 0;
-  // Hapus semua karakter selain angka, minus, dan koma desimal
-  // Google Sheets kadang kirim "86.400" (format ID) atau "86400" (RAW)
-  const cleaned = String(val).replace(/[^\d,.-]/g, "").replace(",", ".");
-  const num = parseFloat(cleaned);
+  const s = String(val).trim();
+
+  // Jika ada koma DAN titik, tentukan mana pemisah ribuan vs desimal
+  // Format ID: "86.400" atau "1.234.567" (titik = ribuan, tidak ada koma)
+  // Format EN: "86,400" atau "1,234,567" (koma = ribuan, tidak ada titik)
+  // Format desimal: "86.4" atau "86,4"
+
+  // Cek apakah ini format Indonesia: titik muncul setiap 3 digit dari kanan
+  // Contoh: "86.400", "1.234.567"
+  const idThousands = /^\d{1,3}(\.\d{3})+$/.test(s);
+  if (idThousands) {
+    // Hapus semua titik (pemisah ribuan), tidak ada desimal
+    return parseInt(s.replace(/\./g, ""), 10);
+  }
+
+  // Format EN dengan koma ribuan: "86,400"
+  const enThousands = /^\d{1,3}(,\d{3})+$/.test(s);
+  if (enThousands) {
+    return parseInt(s.replace(/,/g, ""), 10);
+  }
+
+  // Angka biasa tanpa pemisah atau dengan desimal
+  const num = parseFloat(s.replace(/,/g, "."));
   return isNaN(num) ? 0 : num;
 }
 
