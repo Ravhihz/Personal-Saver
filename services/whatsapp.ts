@@ -62,7 +62,11 @@ const state: WaState = {
 // ─── Session directory ────────────────────────────────────────
 
 function getSessionDir(): string {
-  const dir = path.join(process.cwd(), process.env.WA_SESSION_DIR || "wa-session");
+  // Path harus statically scoped ke subfolder tertentu agar Turbopack
+  // tidak men-trace seluruh project. Nama subfolder dari env hanya dipakai
+  // sebagai suffix di dalam folder "wa-sessions/" yang sudah fixed.
+  const subdir = process.env.WA_SESSION_DIR || "default";
+  const dir = path.join(process.cwd(), "wa-sessions", subdir);
   if (!fs.existsSync(/*turbopackIgnore: true*/ dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -222,6 +226,26 @@ export async function requestPairingCode(phoneNumber: string): Promise<string> {
   throw new Error(`Gagal mendapatkan pairing code setelah 3x percobaan: ${lastError?.message}`);
 }
 
+// ─── Wait until connected (max timeout ms) ───────────────────
+
+async function waitUntilConnected(timeoutMs = 15000): Promise<boolean> {
+  if (state.isConnected && state.sock) return true;
+
+  // Trigger reconnect jika belum ada socket
+  if (!state.sock && !state.isConnecting) {
+    await connectWhatsApp();
+  }
+
+  const interval = 500;
+  let elapsed = 0;
+  while (elapsed < timeoutMs) {
+    if (state.isConnected && state.sock) return true;
+    await new Promise((r) => setTimeout(r, interval));
+    elapsed += interval;
+  }
+  return false;
+}
+
 // ─── Send notification ────────────────────────────────────────
 
 export async function sendTransactionNotification(
@@ -233,12 +257,12 @@ export async function sendTransactionNotification(
     return;
   }
 
-  if (!state.isConnected || !state.sock) {
-    console.warn(`[WA] Tidak bisa kirim notifikasi — isConnected: ${state.isConnected}, sock: ${!!state.sock}`);
+  // Pastikan socket connected sebelum kirim — tunggu max 15 detik
+  const connected = await waitUntilConnected(15000);
+  if (!connected) {
+    console.warn("[WA] Tidak bisa kirim notifikasi — socket tidak terhubung setelah 15 detik.");
     return;
   }
-
-  console.log(`[WA] Mengirim notifikasi ke ${targetNumber}...`);
 
   const jid = `${targetNumber}@s.whatsapp.net`;
 
@@ -270,6 +294,29 @@ ${tanda} *Bersih: ${formatRupiah(tx.bersih)}*
 ━━━━━━━━━━━━━━━━━━━━━
 `.trim();
 
-  await state.sock.sendMessage(jid, { text: message });
-  console.log(`[WA] ✅ Notifikasi berhasil dikirim ke ${targetNumber}`);
+  // Retry kirim pesan sampai 3x dengan jeda — Baileys kadang resolve
+  // sendMessage sebelum socket benar-benar confirmed ke WA server
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (!state.sock || !state.isConnected) {
+        throw new Error("Socket terputus saat hendak kirim");
+      }
+      console.log(`[WA] Mengirim notifikasi ke ${targetNumber} (attempt ${attempt})...`);
+      await state.sock.sendMessage(jid, { text: message });
+      console.log(`[WA] ✅ Notifikasi berhasil dikirim ke ${targetNumber}`);
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[WA] Attempt ${attempt} gagal: ${lastError.message}`);
+      if (attempt < 3) {
+        // Tunggu socket reconnect sebelum retry
+        await new Promise((r) => setTimeout(r, 3000));
+        const reconnected = await waitUntilConnected(10000);
+        if (!reconnected) break;
+      }
+    }
+  }
+
+  console.error(`[WA] ❌ Gagal kirim notifikasi setelah 3x percobaan: ${lastError?.message}`);
 }

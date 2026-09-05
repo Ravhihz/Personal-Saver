@@ -144,7 +144,7 @@ export async function appendTransaction(tx: Transaction): Promise<void> {
   await sheets.spreadsheets.values.append({
     spreadsheetId,
     range: `${sheetName}!A1`,
-    valueInputOption: "USER_ENTERED",
+    valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [summaryRow] },
   });
@@ -175,11 +175,22 @@ export async function appendTransaction(tx: Transaction): Promise<void> {
     await sheets.spreadsheets.values.append({
       spreadsheetId,
       range: `${sheetDetail}!A1`,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       insertDataOption: "INSERT_ROWS",
       requestBody: { values: detailRows },
     });
   }
+}
+
+// ─── Parse angka dari Sheets (handle format lokal/titik ribuan) ──
+
+function parseSheetNumber(val: string | undefined): number {
+  if (!val) return 0;
+  // Hapus semua karakter selain angka, minus, dan koma desimal
+  // Google Sheets kadang kirim "86.400" (format ID) atau "86400" (RAW)
+  const cleaned = String(val).replace(/[^\d,.-]/g, "").replace(",", ".");
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
 }
 
 // ─── Read all transactions ────────────────────────────────────
@@ -232,7 +243,7 @@ export async function getAllTransactions(): Promise<Transaction[]> {
       };
     }
     const tipe = (row[2] || "").toString().toLowerCase();
-    const nominal = Number(row[4]) || 0;
+    const nominal = parseSheetNumber(row[4]);
     const ket = row[3] || "-";
 
     if (tipe === "dompet digital") detailMap[id].dompetDigital.push(nominal);
@@ -261,17 +272,17 @@ export async function getAllTransactions(): Promise<Transaction[]> {
         id,
         tanggal: row[1],
         income: {
-          dompetDigital: detail?.dompetDigital.length ? detail.dompetDigital : [Number(row[3]) || 0],
-          tunai: detail?.tunai.length ? detail.tunai : [Number(row[4]) || 0],
-          tip: detail?.tip.length ? detail.tip : [Number(row[5]) || 0],
-          insentif: detail?.insentif ?? Number(row[6]) ?? 0,
-          uangPengganti: detail?.uangPengganti.length ? detail.uangPengganti : [Number(row[7]) || 0],
+          dompetDigital: detail?.dompetDigital.length ? detail.dompetDigital : [parseSheetNumber(row[3])],
+          tunai: detail?.tunai.length ? detail.tunai : [parseSheetNumber(row[4])],
+          tip: detail?.tip.length ? detail.tip : [parseSheetNumber(row[5])],
+          insentif: detail?.insentif ?? parseSheetNumber(row[6]),
+          uangPengganti: detail?.uangPengganti.length ? detail.uangPengganti : [parseSheetNumber(row[7])],
         },
         expenses: detail?.expenses ?? [],
-        totalPendapatanAplikasi: Number(row[2]) || 0,
-        totalPengeluaran: Number(row[8]) || 0,
-        bersih: Number(row[9]) || 0,
-      createdAt: row[10] || "",
+        totalPendapatanAplikasi: parseSheetNumber(row[2]),
+        totalPengeluaran: parseSheetNumber(row[8]),
+        bersih: parseSheetNumber(row[9]),
+        createdAt: row[10] || "",
       } satisfies Transaction;
     })
     .sort((a, b) => (b.tanggal > a.tanggal ? 1 : -1));
